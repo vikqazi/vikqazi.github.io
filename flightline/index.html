@@ -7,8 +7,10 @@
 <meta name="robots" content="noindex">
 <link rel="canonical" href="https://fowlatlas.com/">
 <script>
-  // Flightline is now Fowl Atlas, at fowlatlas.com (2026-11-04). Old links from vikqazi.github.io/flightline (and the
-  // older /granite-flyway) go straight there: keep the rest of the path, the query and the #map view of the old link.
+  // Flightline is now Fowl Atlas, at fowlatlas.com (2026-11-04). NOT SERVED while GitHub Pages is on for the project
+  // repo vikqazi/flightline: a project page wins over this folder, and the app page there forwards (and carries the
+  // browser items saved on vikqazi.github.io). This copy only takes over if that is turned off; it cannot carry them.
+  // Keep the rest of the path, the query and the #map view of the old link.
   var rest = location.pathname.replace(/^\/(flightline|granite-flyway)(\/|$)/, "").replace(/^\//, "");
   location.replace("https://fowlatlas.com/" + rest + location.search + location.hash);
 </script>
