@@ -7,7 +7,7 @@
 <script>var flStay=(function flCanon(c, carry) {
   var L = location, h = L.hostname, P = 'gf.', K = 'flcarry', MAX = 400000, ls = null;
   var UU = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, KD = ['spots', 'hunts'];
-  var BOOK = ['acct.owner', 'acct.dirty', 'acct.tomb', 'acct.prev'];   // account bookkeeping (acct.stash is its own group)
+  var BOOK = ['acct.owner', 'acct.dirty', 'acct.tomb'];   // account bookkeeping (acct.stash and acct.prev are groups of their own)
   var SET = {   // the only settings carried: display choices, each checked (never use, terms, fbWant, acct.skew, aid ...)
     theme: /^(auto|light|dark)$/, base: /^(?!constructor$)[a-z]{1,24}$/, labels: /^[01]$/, key: /^[01]$/, geoUsed: /^1$/, viewNew: /^1$/,
     shown: /^[a-z,]{0,300}$/, state: /^[a-z,]{0,300}$/, flyway: /^(pacific|central|mississippi|atlantic)$/, date: /^\d{4}-\d\d-\d\d$/,
@@ -17,7 +17,7 @@
   function enc(s) { return btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
   function dec(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return decodeURIComponent(escape(atob(s))); }
   function fp(s) { var x = 2166136261; for (var i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619) >>> 0; } return x.toString(36) + '.' + s.length.toString(36); }
-  function group(k) { return k === 'spots' || k === 'hunts' ? k : k === 'acct.stash' ? 'stash' : BOOK.indexOf(k) >= 0 ? 'account' : has(SET, k) ? 'settings' : ''; }
+  function group(k) { return k === 'spots' || k === 'hunts' ? k : k === 'acct.stash' ? 'stash' : k === 'acct.prev' ? 'prev' : BOOK.indexOf(k) >= 0 ? 'account' : has(SET, k) ? 'settings' : ''; }
   function cut(hs) {   // [the hash without any flcarry=..., every flcarry value found]
     hs = hs || '';
     var v = [], keep = [], parts = hs.charAt(0) === '#' ? hs.slice(1).split('&') : [], i;
@@ -44,7 +44,7 @@
     }
     if (pg && ls) {
       var o = {}, ks = [], signed = false, d = '', i, k, v;
-      var pack = function (x) { return enc(JSON.stringify({ v: 1, from: h, signed: signed, k: x })); };
+      var pack = function (x) { return enc(JSON.stringify({ v: 1, from: h, signed: signed, owned: !!o['acct.owner'], k: x })); };
       try {
         for (i = 0; i < ls.length; i++) {
           k = ls.key(i);
@@ -56,9 +56,10 @@
         for (i = 0; i < ks.length; i++) { v = ls.getItem(P + ks[i]); if (v != null) o[ks[i]] = v; }
         d = Object.keys(o).length ? pack(o) : '';
         if (d.length > MAX) {   // carry what fits, by priority; the rest is named on the notice
-          var g = { account: [], spots: [], hunts: [], stash: [], settings: [] }, part = {}, gn, kk, j;
+          var g = { account: [], spots: [], hunts: [], stash: [], prev: [], settings: [] }, part = {}, gn, kk, j;
           for (kk in o) if (has(o, kk)) g[group(kk)].push(kk);
           for (gn in g) if (has(g, gn) && g[gn].length) {
+            if ((gn === 'spots' || gn === 'hunts') && o['acct.owner'] && left.indexOf('account') >= 0) { left.push(gn); continue; }   // an account's lists never go without whose they are
             var tr = {};
             for (kk in part) if (has(part, kk)) tr[kk] = part[kk];
             for (j = 0; j < g[gn].length; j++) tr[g[gn][j]] = o[g[gn][j]];
@@ -160,6 +161,7 @@
 
   /* the old address's items */
   var oOwner = str('acct.owner') || '', odd = oOwner !== '' && !UU.test(oOwner);   // an account id is a uuid: anything else is not from the app
+  if (pk.owned === true && !oOwner) odd = true;   // an account's lists without whose they are (never packed so): not signed-out items, take none
   if (odd) oOwner = '';
   var oList = odd ? { spots: [], hunts: [] } : { spots: arr(str('spots')).filter(OK.spots), hunts: arr(str('hunts')).filter(OK.hunts) };
   var oDirty = sets(obj(str('acct.dirty'))), oTomb = sets(obj(str('acct.tomb')));
@@ -174,12 +176,13 @@
       }
       oList[kd].forEach(function (x) {
         var q = ikey(x), xid = typeof x.id === 'string' ? x.id : '', j = has(at, q) ? at[q] : -1;
+        if (oOwner && !has(oDirty[kd], xid)) return;   // synced there: it is in the account (and may have been deleted here since)
         if (!fresh(kd, x)) return;   // came over before (and maybe deleted here since)
         mark(kd, q, t(x));
         if (xid && has(tomb[kd], xid)) return;   // deleted here: a delete is final
         if (j >= 0 && here[kd][j] && t(x) <= t(here[kd][j])) return;   // here already, as new or newer
         if (j >= 0 && here[kd][j]) here[kd][j] = x; else { at[q] = here[kd].length; here[kd].push(x); }
-        if (UU.test(xid) && (!oOwner || has(oDirty[kd], xid))) dirty[kd][xid] = 1;   // to the account signed in here (signed-out items: adopted)
+        if (UU.test(xid)) dirty[kd][xid] = 1;   // to the account signed in here (unsynced there; signed-out items: adopted)
         cnt[kd]++; lchg = true;
       });
       here[kd] = here[kd].filter(function (x) { return x !== null; });
@@ -214,17 +217,31 @@
     if (!yes) return;   // nothing taken, nothing remembered: asked again next time
   }
 
-  for (key in pref) if (has(pref, key)) put(key, pref[key]);   // settings: never overwrite this address's own
-  if (!total) return;
-  var keep = function (k, v, none) { if (!none || get(k) !== null) put(k, JSON.stringify(v)); };   // an empty list is written only over one already here
-  if (lchg) {
-    keep('spots', here.spots, !here.spots.length); keep('hunts', here.hunts, !here.hunts.length);
-    keep('acct.dirty', dirty, !Object.keys(dirty.spots).length && !Object.keys(dirty.hunts).length);
-    keep('acct.tomb', tomb, !Object.keys(tomb.spots).length && !Object.keys(tomb.hunts).length);
+  if (total) {   // all or nothing: a refused write (storage full) undoes every write before it, and nothing is remembered as taken
+    var log = [], bad = false;
+    var w = function (k, v) {   // v null: remove
+      if (bad) return;
+      var was = get(k);
+      try { if (v === null) ls.removeItem(P + k); else ls.setItem(P + k, v); log.push([k, was]); } catch (e) { bad = true; }
+    };
+    var keep = function (k, v, none) { if (!none || get(k) !== null) w(k, JSON.stringify(v)); };   // an empty list is written only over one already here
+    if (lchg) {
+      keep('spots', here.spots, !here.spots.length); keep('hunts', here.hunts, !here.hunts.length);
+      keep('acct.dirty', dirty, !Object.keys(dirty.spots).length && !Object.keys(dirty.hunts).length);
+      keep('acct.tomb', tomb, !Object.keys(tomb.spots).length && !Object.keys(tomb.hunts).length);
+    }
+    if (gone) w('acct.owner', null);   // after the lists, as acctLeave does
+    if (schg) w('acct.stash', JSON.stringify(stash));
+    w('carried', JSON.stringify(seen));   // last: remembered as taken only once everything landed
+    if (bad) {
+      for (var b = log.length - 1; b >= 0; b--) { if (log[b][1] === null) drop(log[b][0]); else put(log[b][0], log[b][1]); }   // newest first: each step back is a state this browser held
+      try {
+        window.alert('Fowl Atlas could not bring ' + it + ' over: this browser has no room left for fowlatlas.com. Nothing was changed here, and ' +
+          (total === 1 ? 'it is' : 'they are') + ' still saved at the old address.\n\nMake room (for example, delete spots or hunt log entries you no longer need), then open your old link or bookmark again to bring ' + it + ' over.');
+      } catch (e) {}
+    }
   }
-  if (gone) drop('acct.owner');   // after the lists, as acctLeave does
-  if (schg) put('acct.stash', JSON.stringify(stash));
-  put('carried', JSON.stringify(seen));
+  for (key in pref) if (has(pref, key)) put(key, pref[key]);   // settings: never overwrite this address's own
 })({"base":"https://fowlatlas.com","from":{"www.fowlatlas.com":"","flightlinemap.pages.dev":"","vikqazi.github.io":"/flightline"},"alone":true,"root":true},true);if(flStay)(function flNotice(st, base) {
   if (!st || typeof st.go !== 'string' || st.go.indexOf(base + '/') !== 0 || !st.left || !st.left.length) return;
   if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', function () { flNotice(st, base); }); return; }
@@ -248,11 +265,13 @@
   }
   var sp = list('spots'), hu = list('hunts'), words = [];
   for (i = 0; i < st.left.length; i++) {
-    var g = st.left[i];
-    words.push(g === 'spots' ? sp.length + (sp.length === 1 ? ' saved spot' : ' saved spots') :
-      g === 'hunts' ? hu.length + (hu.length === 1 ? ' hunt log entry' : ' hunt log entries') :
-      g === 'stash' ? 'changes waiting for another account' : g === 'settings' ? 'your settings' : 'sync records');
+    var g = st.left[i], wd = g === 'spots' ? (sp.length ? sp.length + (sp.length === 1 ? ' saved spot' : ' saved spots') : '') :
+      g === 'hunts' ? (hu.length ? hu.length + (hu.length === 1 ? ' hunt log entry' : ' hunt log entries') : '') :
+      g === 'stash' || g === 'prev' ? 'changes waiting for another account' : g === 'settings' ? 'your settings' :
+      'the record of what is not yet synced to your account';
+    if (wd && words.indexOf(wd) < 0) words.push(wd);
   }
+  if (!words.length) words.push('some saved items');
   var said = words.length > 1 ? words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1] : words[0];
   var nCopy = (st.left.indexOf('spots') >= 0 ? sp.length : 0) + (st.left.indexOf('hunts') >= 0 ? hu.length : 0);
   m.textContent = '';
